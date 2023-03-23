@@ -12,24 +12,30 @@ import (
 
 type RaftNode int
 
+// input for RequestVote RPC
+// not using lastLogIndex; lastLogTerm
 type VoteArguments struct {
-	Term        int
-	CandidateID int
+	Term        int // candidate's term
+	CandidateID int // candidate requesting vote
 }
 
+// output for RequestVote RPC
 type VoteReply struct {
-	Term       int
-	ResultVote bool
+	Term       int  // current term, for candidate to update itself
+	ResultVote bool // true if candidate recieved vote
 }
 
+// input for AppendEntries RPC
+// prevLogIndex, prevLogTerm, entries[],and leaderCommit all refer to logs and will not be used here
 type AppendEntryArgument struct {
-	Term     int
-	LeaderID int
+	Term     int // leader's term
+	LeaderID int // so follower can redirect clients
 }
 
+// output for AppendEntries RPC
 type AppendEntryReply struct {
-	Term    int
-	Success bool
+	Term    int  // current term, allowing leader to update itself
+	Success bool // true if term >= currentTerm; normally: true if follower contained entry matching prevLogIndex and prevLogTerm
 }
 
 type ServerConnection struct {
@@ -47,7 +53,8 @@ var votedFor int
 // Hint 1: Use the description in Figure 2 of the paper
 // Hint 2: Only focus on the details related to leader election and majority votes
 func (*RaftNode) RequestVote(arguments VoteArguments, reply *VoteReply) error {
-
+	// if candidate's term is less the global currentTerm than reply.ResultVote = FALSE
+	//also if global votedFor == nil | == arguments.candidateId, reply.ResultVote = TRUE
 	return nil
 }
 
@@ -55,7 +62,7 @@ func (*RaftNode) RequestVote(arguments VoteArguments, reply *VoteReply) error {
 // Hint 1: Use the description in Figure 2 of the paper
 // Hint 2: Only focus on the details related to leader election and heartbeats
 func (*RaftNode) AppendEntry(arguments AppendEntryArgument, reply *AppendEntryReply) error {
-
+	//if the candidate's term is less than global currentTerm, reply.Success = FALSE
 	return nil
 }
 
