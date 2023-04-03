@@ -62,12 +62,14 @@ var serverNodes []ServerConnection
 var currentTerm int
 var votedFor int
 var electionTimeout *time.Timer
+var isLeader bool
 
 // The RequestVote RPC as defined in Raft
 // Hint 1: Use the description in Figure 2 of the paper
 // Hint 2: Only focus on the details related to leader election and majority votes
 func (*RaftNode) RequestVote(arguments VoteArguments, reply *VoteReply) error {
 	// if candidate's term is less the global currentTerm than reply.ResultVote = FALSE
+	isLeader = false
 	//also if global votedFor == nil | == arguments.candidateId, reply.ResultVote = TRUE
 	return nil
 }
@@ -76,20 +78,14 @@ func (*RaftNode) RequestVote(arguments VoteArguments, reply *VoteReply) error {
 // Hint 1: Use the description in Figure 2 of the paper
 // Hint 2: Only focus on the details related to leader election and heartbeats
 func (*RaftNode) AppendEntry(arguments AppendEntryArgument, reply *AppendEntryReply) error {
-	fmt.Println("GOT RPC")
+	fmt.Printf("Got RPC from Leader %d in term #%d", arguments.LeaderID, arguments.Term)
 	//stop timer
 	timer_was_going := electionTimeout.Stop()
 	if timer_was_going {
 		fmt.Println("Heartbeat recieved; time was stopped")
 	}
 	//restart timer
-	electionTimeout = time.NewTimer(randomTime() * time.Millisecond)
-	go func() {
-		<-electionTimeout.C //.C is a channel time object
-		//become a candidate by starting leader election
-		LeaderElection()
-		fmt.Println("Election Timeout: ", selfID)
-	}()
+	StartTimer()
 	//if the candidate's term is less than global currentTerm, reply.Success = FALSE
 	return nil
 }
@@ -102,7 +98,7 @@ func randomTime() time.Duration {
 	return time.Duration(rand.Intn(max-min+1) + min)
 }
 
-func Follower() {
+func StartTimer() {
 	//start as a follower
 	electionTimeout = time.NewTimer(randomTime() * time.Millisecond)
 	go func() {
@@ -139,22 +135,25 @@ func LeaderElection() {
 	}
 	//if recieved majority of votes, become leader
 	if voteCounts >= len(serverNodes)/2 {
-		SendHeartbeats()
+		isLeader = true
+		Heartbeat() //Make this continue until RequestVote is recieved
 	}
 	// if AppendEntries RPC recieved from new leader, convert to follower
 
 	// if election timeout elapses, start a new election
 }
 
-// First steps upon election, until end of leadership
-func SendHeartbeats() {
-	//send empty AppendEntries RPCs as heartbeats...
-}
-
 // You may use this function to help with handling the periodic heartbeats
 // Hint: Use this only if the node is a leader
 func Heartbeat() {
-
+	for isLeader {
+		arg := new(AppendEntryArgument)
+		reply := new(AppendEntryReply)
+		for _, node := range serverNodes {
+			node.rpcConnection.Go("RaftNode.AppendEntry", arg, &reply, nil)
+		}
+		time.Sleep(1) //pause
+	}
 }
 
 func main() {
@@ -246,7 +245,8 @@ func main() {
 
 	// Once all the connections are established, we can start the typical operations within Raft
 	// Leader election and heartbeats are concurrent and non-stop in Raft
-
+	StartTimer()
+	isLeader = false
 	// HINT 1: You may need to start a thread here (or more, based on your logic)
 	// Hint 2: Main process should never stop
 	// Hint 3: After this point, the threads should take over
