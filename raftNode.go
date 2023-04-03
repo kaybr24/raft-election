@@ -68,10 +68,25 @@ var isLeader bool
 // Hint 1: Use the description in Figure 2 of the paper
 // Hint 2: Only focus on the details related to leader election and majority votes
 func (*RaftNode) RequestVote(arguments VoteArguments, reply *VoteReply) error {
+	if isLeader {
+		isLeader = false
+		fmt.Println("Was leader, NOW follower")
+	}
+	fmt.Printf("Candidate %d is requesting a vote from Follower %d", arguments.CandidateID, selfID)
 	// if candidate's term is less the global currentTerm than reply.ResultVote = FALSE
-	isLeader = false
-	//also if global votedFor == nil | == arguments.candidateId, reply.ResultVote = TRUE
+	if arguments.Term < currentTerm {
+		reply.ResultVote = false
+		reply.Term = currentTerm // let the candidate know what the term is
+		fmt.Printf("REJECTED: Candidate %d's term #%d is less than current term #%d", arguments.CandidateID, arguments.Term, currentTerm)
+	} else if votedFor != 0 && votedFor != arguments.CandidateID { // candidate is valid, but server already voted for someone else
+		reply.ResultVote = false
+		fmt.Printf("REJECTED Candidate %d because Follower %d has already voted for %d", arguments.CandidateID, selfID, votedFor)
+	} else { //vote for the candidate
+		reply.ResultVote = true
+		fmt.Printf("VOTED FOR Candidate %d", arguments.CandidateID)
+	}
 	return nil
+
 }
 
 // The AppendEntry RPC as defined in Raft
@@ -116,7 +131,7 @@ func LeaderElection() {
 	currentTerm += 1 // increment current term
 	voteCounts := 1  //vote for self
 	fmt.Printf("Recieved VOTE: self -> %d", selfID)
-	//reset election timer (how can I move it from main?)
+	//reset election timer (didn't we just do this?)
 	//send RequestVote RPC to all other servers
 	voteArgs := new(VoteArguments)
 	voteArgs.Term = currentTerm
@@ -152,7 +167,7 @@ func Heartbeat() {
 		for _, node := range serverNodes {
 			node.rpcConnection.Go("RaftNode.AppendEntry", arg, &reply, nil)
 		}
-		time.Sleep(1) //pause
+		time.Sleep(10 * time.Second) //pause
 	}
 }
 
