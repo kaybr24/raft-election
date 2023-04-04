@@ -69,6 +69,9 @@ var isLeader bool
 // Hint 1: Use the description in Figure 2 of the paper
 // Hint 2: Only focus on the details related to leader election and majority votes
 func (*RaftNode) RequestVote(arguments VoteArguments, reply *VoteReply) error {
+	//all RPCs function as heartbeats
+	restartTimer()
+	//this should not print
 	if isLeader {
 		isLeader = false
 		fmt.Println("Was leader, NOW follower")
@@ -79,7 +82,10 @@ func (*RaftNode) RequestVote(arguments VoteArguments, reply *VoteReply) error {
 		reply.ResultVote = false
 		reply.Term = currentTerm // let the candidate know what the term is
 		fmt.Printf("REJECTED: Candidate %d's term #%d is less than current term #%d\n", arguments.CandidateID, arguments.Term, currentTerm)
-	} else if votedFor != 0 && votedFor != arguments.CandidateID { // candidate is valid, but server already voted for someone else
+	} else if votedFor == selfID { // candidate is valid, but we are also a candidate
+		reply.ResultVote = false
+		fmt.Printf("REJECTED Candidate %d because WE are a Candidate (%d)\n", arguments.CandidateID, selfID)
+	} else if votedFor != arguments.CandidateID { // candidate is valid, but server already voted for someone else
 		reply.ResultVote = false
 		fmt.Printf("REJECTED Candidate %d because Follower %d has already voted for %d\n", arguments.CandidateID, selfID, votedFor)
 	} else { //vote for the candidate
@@ -95,13 +101,10 @@ func (*RaftNode) RequestVote(arguments VoteArguments, reply *VoteReply) error {
 // Hint 2: Only focus on the details related to leader election and heartbeats
 func (*RaftNode) AppendEntry(arguments AppendEntryArgument, reply *AppendEntryReply) error {
 	fmt.Printf("Got RPC from Leader %d in term #%d\n", arguments.LeaderID, arguments.Term)
-	//stop timer
-	timer_was_going := electionTimeout.Stop()
-	if timer_was_going {
-		fmt.Println("Heartbeat recieved; timer was stopped")
+	stopped := restartTimer()
+	if !stopped {
+		fmt.Printf("leader %d's heartbeat recieved AFTER server %d timed out\n", arguments.LeaderID, selfID)
 	}
-	//restart timer
-	StartTimer()
 	//if the candidate's term is less than global currentTerm, reply.Success = FALSE
 	return nil
 }
@@ -116,7 +119,7 @@ func randomTime() time.Duration {
 
 func StartTimer() {
 	//start as a follower
-	fmt.Printf("Follower %d is HERE", selfID)
+	fmt.Printf("Follower %d is HERE\n", selfID)
 	electionTimeout = time.NewTimer(randomTime() * time.Millisecond)
 	go func() {
 		<-electionTimeout.C //.C is a channel time object
@@ -127,11 +130,24 @@ func StartTimer() {
 	// if we get an RPC, restart the timer
 }
 
+func restartTimer() bool {
+	//stop timer
+	timer_was_going := electionTimeout.Stop()
+	if timer_was_going {
+		fmt.Println("Heartbeat recieved; timer was stopped")
+	}
+	//restart timer
+	StartTimer()
+	return timer_was_going
+}
+
 // You may use this function to help with handling the election time out
 // Hint: It may be helpful to call this method every time the node wants to start an election
 func LeaderElection() {
 	currentTerm += 1 // increment current term
-	voteCounts := 1  //vote for self
+	//vote for self
+	votedFor = selfID
+	voteCounts := 1
 	fmt.Printf(">> Recieved VOTE: self -> %d\n", selfID)
 	//reset election timer (didn't we just do this?)
 	//send RequestVote RPC to all other servers
@@ -152,7 +168,7 @@ func LeaderElection() {
 	}
 	//if recieved majority of votes, become leader
 	if voteCounts >= len(serverNodes)/2 {
-		fmt.Printf("Elected LEADER %d with %d/%d of the vote", selfID, voteCounts, len(serverNodes))
+		fmt.Printf("Elected LEADER %d with %d/%d of the vote\n", selfID, voteCounts, len(serverNodes))
 		isLeader = true
 		Heartbeat() //Make this continue until RequestVote is recieved
 	}
@@ -164,9 +180,11 @@ func LeaderElection() {
 // You may use this function to help with handling the periodic heartbeats
 // Hint: Use this only if the node is a leader
 func Heartbeat() {
+	arg := new(AppendEntryArgument)
+	arg.Term = currentTerm
+	arg.LeaderID = selfID
 	for isLeader {
 		fmt.Printf("heartbeat - leader %d is pinging all servers!\n", selfID)
-		arg := new(AppendEntryArgument)
 		reply := new(AppendEntryReply)
 		for _, node := range serverNodes {
 			node.rpcConnection.Go("RaftNode.AppendEntry", arg, &reply, nil)
