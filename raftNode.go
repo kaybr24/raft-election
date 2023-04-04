@@ -72,21 +72,33 @@ func (*RaftNode) RequestVote(arguments VoteArguments, reply *VoteReply) error {
 	//all RPCs function as heartbeats
 	restartTimer()
 	//this should not print
-	if isLeader {
-		isLeader = false
-		fmt.Println("Was leader, NOW follower")
-	}
 	fmt.Printf("Candidate %d is requesting a vote from Follower %d\n", arguments.CandidateID, selfID)
 	//clear the votedFor if we are in a new election
-	if arguments.Term != currentTerm {
+	if arguments.Term > currentTerm {
 		votedFor = -1
 	}
+	// // Now do we want to vote for them?
+	// if votedFor != -1 { //we already voted for someone in this term
+	// 	reply.ResultVote = false
+	// 	fmt.Printf("Server %d (term #%d) REJECTED Candidate %d (term #%d) - voted for %d\n", selfID, currentTerm, arguments.CandidateID, arguments.Term, votedFor)
+	// } else { //we have not voted for anyone in this term
+
+	// }
+	// if isLeader && arguments.Term > currentTerm {
+	// 	isLeader = false
+	// 	fmt.Println(">> Was leader, NOW follower")
+	// }
+
 	// if candidate's term is less the global currentTerm than reply.ResultVote = FALSE
-	if arguments.Term >= currentTerm && votedFor == -1 {
+	if arguments.Term >= currentTerm && votedFor == -1 { //A leader already voted for itself
 		reply.ResultVote = true
-		fmt.Printf("VOTED FOR Candidate %d\n", arguments.CandidateID)
+		currentTerm = arguments.Term //update term
+		isLeader = false             //no longer leader (if previously leader)
+		votedFor = arguments.CandidateID
+		fmt.Printf("VOTED FOR Candidate %d in term #%d\n", arguments.CandidateID, currentTerm)
 	} else {
 		reply.ResultVote = false
+		reply.Term = currentTerm
 		fmt.Printf("Server %d (term #%d) REJECTED Candidate %d (term #%d) - voted for %d\n", selfID, currentTerm, arguments.CandidateID, arguments.Term, votedFor)
 	}
 	// if arguments.Term < currentTerm {
@@ -126,18 +138,18 @@ func randomTime() time.Duration {
 	min := 1500  //ms
 	max := 10000 //ms
 	t := rand.Intn(max-min+1) + min
-	fmt.Printf("Server %d is using a %d ms timer\n", selfID, t)
+	//fmt.Printf("Server %d is using a %d ms timer\n", selfID, t)
 	return time.Duration(t)
 }
 
 func StartTimer() {
 	//start as a follower
-	fmt.Printf("Follower %d is HERE\n", selfID)
+	//fmt.Printf("Follower %d is HERE\n", selfID)
 	electionTimeout = time.NewTimer(randomTime() * time.Millisecond)
 	go func() {
 		<-electionTimeout.C //.C is a channel time object
 		//become a candidate by starting leader election
-		fmt.Printf("\nElection Timeout: %d is initating elections\n", selfID)
+		fmt.Printf("\nElection Timeout: %d is initating elections in term #%d\n", selfID, currentTerm+1)
 		LeaderElection()
 	}()
 	// if we get an RPC, restart the timer
@@ -183,6 +195,7 @@ func LeaderElection() {
 	//if recieved majority of votes, become leader
 	if voteCounts >= len(serverNodes)/2 {
 		fmt.Printf("Elected LEADER %d with %d out of %d of the vote in TERM #%d\n", selfID, voteCounts, len(serverNodes)+1, currentTerm)
+		electionTimeout.Stop()
 		isLeader = true
 		Heartbeat() //Make this continue until RequestVote is recieved
 	}
