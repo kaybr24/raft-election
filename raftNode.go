@@ -9,6 +9,7 @@ import (
 	"net/rpc"
 	"os"
 	"strconv"
+	"sync"
 	"time"
 )
 
@@ -97,7 +98,7 @@ func (*RaftNode) AppendEntry(arguments AppendEntryArgument, reply *AppendEntryRe
 	//stop timer
 	timer_was_going := electionTimeout.Stop()
 	if timer_was_going {
-		fmt.Println("Heartbeat recieved; time was stopped\n")
+		fmt.Println("Heartbeat recieved; timer was stopped")
 	}
 	//restart timer
 	StartTimer()
@@ -175,6 +176,7 @@ func Heartbeat() {
 }
 
 func main() {
+	var wg sync.WaitGroup
 	// The assumption here is that the command line arguments will contain:
 	// This server's ID (zero-based), location and name of the cluster configuration file
 	arguments := os.Args
@@ -265,8 +267,10 @@ func main() {
 	// Once all the connections are established, we can start the typical operations within Raft
 	// Leader election and heartbeats are concurrent and non-stop in Raft
 	fmt.Printf("Creating Follower %d\n", selfID)
-	StartTimer()
+	go StartTimer()
+	wg.Wait()
 	isLeader = false
+	time.Sleep(5 * time.Second)
 	// HINT 1: You may need to start a thread here (or more, based on your logic)
 	// Hint 2: Main process should never stop
 	// Hint 3: After this point, the threads should take over
