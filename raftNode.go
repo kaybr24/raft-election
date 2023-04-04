@@ -77,21 +77,32 @@ func (*RaftNode) RequestVote(arguments VoteArguments, reply *VoteReply) error {
 		fmt.Println("Was leader, NOW follower")
 	}
 	fmt.Printf("Candidate %d is requesting a vote from Follower %d\n", arguments.CandidateID, selfID)
+	//clear the votedFor if we are in a new election
+	if arguments.Term != currentTerm {
+		votedFor = -1
+	}
 	// if candidate's term is less the global currentTerm than reply.ResultVote = FALSE
-	if arguments.Term < currentTerm {
-		reply.ResultVote = false
-		reply.Term = currentTerm // let the candidate know what the term is
-		fmt.Printf("REJECTED: Candidate %d's term #%d is less than current term #%d\n", arguments.CandidateID, arguments.Term, currentTerm)
-	} else if votedFor == selfID { // candidate is valid, but we are also a candidate
-		reply.ResultVote = false
-		fmt.Printf("REJECTED Candidate %d because WE are a Candidate (%d)\n", arguments.CandidateID, selfID)
-	} else if votedFor != arguments.CandidateID { // candidate is valid, but server already voted for someone else
-		reply.ResultVote = false
-		fmt.Printf("REJECTED Candidate %d because Follower %d has already voted for %d\n", arguments.CandidateID, selfID, votedFor)
-	} else { //vote for the candidate
+	if arguments.Term >= currentTerm && votedFor == -1 {
 		reply.ResultVote = true
 		fmt.Printf("VOTED FOR Candidate %d\n", arguments.CandidateID)
+	} else {
+		reply.ResultVote = false
+		fmt.Printf("Server %d (term #%d) REJECTED Candidate %d (term #%d) - voted for %d\n", selfID, currentTerm, arguments.CandidateID, arguments.Term, votedFor)
 	}
+	// if arguments.Term < currentTerm {
+	// 	reply.ResultVote = false
+	// 	reply.Term = currentTerm // let the candidate know what the term is
+	// 	fmt.Printf("REJECTED: Candidate %d's term #%d is less than current term #%d\n", arguments.CandidateID, arguments.Term, currentTerm)
+	// } else if votedFor == selfID { // candidate is valid, but we are also a candidate
+	// 	reply.ResultVote = false
+	// 	fmt.Printf("REJECTED Candidate %d because WE are a Candidate (%d)\n", arguments.CandidateID, selfID)
+	// } else if votedFor != arguments.CandidateID { // candidate is valid, but server already voted for someone else
+	// 	reply.ResultVote = false
+	// 	fmt.Printf("REJECTED Candidate %d because Follower %d has already voted for %d\n", arguments.CandidateID, selfID, votedFor)
+	// } else { //vote for the candidate
+	// 	reply.ResultVote = true
+	// 	fmt.Printf("VOTED FOR Candidate %d\n", arguments.CandidateID)
+	// }
 	return nil
 
 }
@@ -111,10 +122,12 @@ func (*RaftNode) AppendEntry(arguments AppendEntryArgument, reply *AppendEntryRe
 
 // generate random duration
 func randomTime() time.Duration {
-	//rand.Seed(time.Now().UnixNano())
-	min := 150  //ms
-	max := 1000 //ms
-	return time.Duration(rand.Intn(max-min+1) + min)
+	rand.Seed(time.Now().UnixNano())
+	min := 1500  //ms
+	max := 10000 //ms
+	t := rand.Intn(max-min+1) + min
+	fmt.Printf("Server %d is using a %d ms timer\n", selfID, t)
+	return time.Duration(t)
 }
 
 func StartTimer() {
@@ -124,7 +137,7 @@ func StartTimer() {
 	go func() {
 		<-electionTimeout.C //.C is a channel time object
 		//become a candidate by starting leader election
-		fmt.Printf("Election Timeout: %d is initating elections\n", selfID)
+		fmt.Printf("\nElection Timeout: %d is initating elections\n", selfID)
 		LeaderElection()
 	}()
 	// if we get an RPC, restart the timer
@@ -164,11 +177,12 @@ func LeaderElection() {
 			fmt.Printf(">> Recieved VOTE: %d -> %d\n", node.serverID, selfID)
 		} else {
 			fmt.Printf(">> %d REJECTED %d \n", node.serverID, selfID)
+			currentTerm = voteResult.Term //catch up to current term
 		}
 	}
 	//if recieved majority of votes, become leader
 	if voteCounts >= len(serverNodes)/2 {
-		fmt.Printf("Elected LEADER %d with %d/%d of the vote\n", selfID, voteCounts, len(serverNodes))
+		fmt.Printf("Elected LEADER %d with %d out of %d of the vote in TERM #%d\n", selfID, voteCounts, len(serverNodes)+1, currentTerm)
 		isLeader = true
 		Heartbeat() //Make this continue until RequestVote is recieved
 	}
@@ -285,10 +299,10 @@ func main() {
 	// Once all the connections are established, we can start the typical operations within Raft
 	// Leader election and heartbeats are concurrent and non-stop in Raft
 	fmt.Printf("Creating Follower %d\n", selfID)
-	go StartTimer()
+	StartTimer() //go
 	wg.Wait()
 	isLeader = false
-	time.Sleep(5 * time.Second)
+	time.Sleep(50 * time.Second)
 	// HINT 1: You may need to start a thread here (or more, based on your logic)
 	// Hint 2: Main process should never stop
 	// Hint 3: After this point, the threads should take over
