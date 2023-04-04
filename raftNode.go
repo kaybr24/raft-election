@@ -108,8 +108,8 @@ func (*RaftNode) AppendEntry(arguments AppendEntryArgument, reply *AppendEntryRe
 // generate random duration
 func randomTime() time.Duration {
 	//rand.Seed(time.Now().UnixNano())
-	min := 1000  //ms
-	max := 10000 //ms
+	min := 150  //ms
+	max := 1000 //ms
 	return time.Duration(rand.Intn(max-min+1) + min)
 }
 
@@ -120,8 +120,8 @@ func StartTimer() {
 	go func() {
 		<-electionTimeout.C //.C is a channel time object
 		//become a candidate by starting leader election
+		fmt.Printf("Election Timeout: %d is initating elections\n", selfID)
 		LeaderElection()
-		fmt.Println("Election Timeout: \n", selfID)
 	}()
 	// if we get an RPC, restart the timer
 }
@@ -187,6 +187,7 @@ func main() {
 
 	// Get this sever's ID (same as its index for simplicity)
 	myID, err := strconv.Atoi(arguments[1])
+	selfID = myID //define raftNode's ID
 	// Get the information of the cluster configuration file containing information on other servers
 	file, err := os.Open(arguments[2])
 	if err != nil {
