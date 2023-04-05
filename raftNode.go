@@ -70,51 +70,84 @@ var isLeader bool
 // Hint 2: Only focus on the details related to leader election and majority votes
 func (*RaftNode) RequestVote(arguments VoteArguments, reply *VoteReply) error {
 	//all RPCs function as heartbeats
-	restartTimer()
+	//restartTimer2()
 	//this should not print
 	fmt.Printf("Candidate %d is requesting a vote from Follower %d\n", arguments.CandidateID, selfID)
 	//clear the votedFor if we are in a new election
 	if arguments.Term > currentTerm {
 		votedFor = -1
 	}
-	// // Now do we want to vote for them?
-	// if votedFor != -1 { //we already voted for someone in this term
-	// 	reply.ResultVote = false
-	// 	fmt.Printf("Server %d (term #%d) REJECTED Candidate %d (term #%d) - voted for %d\n", selfID, currentTerm, arguments.CandidateID, arguments.Term, votedFor)
-	// } else { //we have not voted for anyone in this term
 
-	// }
-	// if isLeader && arguments.Term > currentTerm {
-	// 	isLeader = false
-	// 	fmt.Println(">> Was leader, NOW follower")
-	// }
-
-	// if candidate's term is less the global currentTerm than reply.ResultVote = FALSE
-	if arguments.Term >= currentTerm && votedFor == -1 { //A leader already voted for itself
-		reply.ResultVote = true
-		currentTerm = arguments.Term //update term
-		isLeader = false             //no longer leader (if previously leader)
-		votedFor = arguments.CandidateID
-		fmt.Printf("VOTED FOR Candidate %d in term #%d\n", arguments.CandidateID, currentTerm)
+	//if this machine hasn't voted yet in this term, voted for will be -1
+	if votedFor == -1 {
+		//if the request is coming from a lesser term, then don't vote for it
+		if arguments.Term < currentTerm {
+			reply.ResultVote = false
+			//tell the candidate our term?
+			reply.Term = currentTerm
+			fmt.Printf("Server %d (term #%d) REJECTED Candidate %d (term #%d) because we are in higher term\n", selfID, currentTerm, arguments.CandidateID, arguments.Term)
+		} else { //otherwise if the candidate is higher term (or same term?) as us, we can vote for it
+			fmt.Println("---->I GET HERE")
+			reply.ResultVote = true
+			currentTerm = arguments.Term //update term
+			if isLeader {
+				isLeader = false //no longer leader (if previously leader)
+				fmt.Printf("I was leader, but now I am not\n")
+			}
+			votedFor = arguments.CandidateID
+			fmt.Printf("VOTED FOR Candidate %d in term #%d\n", arguments.CandidateID, currentTerm)
+		} /*else {
+			fmt.Println("--->FIGURE OUT WHAT TO DO IN THIS SCENARIO")
+		}*/
 	} else {
+		fmt.Printf("I already voted for %d in this term #%d\n", votedFor, currentTerm)
 		reply.ResultVote = false
 		reply.Term = currentTerm
-		fmt.Printf("Server %d (term #%d) REJECTED Candidate %d (term #%d) - voted for %d\n", selfID, currentTerm, arguments.CandidateID, arguments.Term, votedFor)
 	}
-	// if arguments.Term < currentTerm {
-	// 	reply.ResultVote = false
-	// 	reply.Term = currentTerm // let the candidate know what the term is
-	// 	fmt.Printf("REJECTED: Candidate %d's term #%d is less than current term #%d\n", arguments.CandidateID, arguments.Term, currentTerm)
-	// } else if votedFor == selfID { // candidate is valid, but we are also a candidate
-	// 	reply.ResultVote = false
-	// 	fmt.Printf("REJECTED Candidate %d because WE are a Candidate (%d)\n", arguments.CandidateID, selfID)
-	// } else if votedFor != arguments.CandidateID { // candidate is valid, but server already voted for someone else
-	// 	reply.ResultVote = false
-	// 	fmt.Printf("REJECTED Candidate %d because Follower %d has already voted for %d\n", arguments.CandidateID, selfID, votedFor)
-	// } else { //vote for the candidate
-	// 	reply.ResultVote = true
-	// 	fmt.Printf("VOTED FOR Candidate %d\n", arguments.CandidateID)
-	// }
+
+	/*
+		//clear the votedFor if we are in a new election
+		if arguments.Term > currentTerm {
+			votedFor = -1
+		}
+		// // Now do we want to vote for them?
+		// if votedFor != -1 { //we already voted for someone in this term
+		// 	reply.ResultVote = false
+		// 	fmt.Printf("Server %d (term #%d) REJECTED Candidate %d (term #%d) - voted for %d\n", selfID, currentTerm, arguments.CandidateID, arguments.Term, votedFor)
+		// } else { //we have not voted for anyone in this term
+
+		// }
+		// if isLeader && arguments.Term > currentTerm {
+		// 	isLeader = false
+		// 	fmt.Println(">> Was leader, NOW follower")
+		// }
+
+		// if candidate's term is less the global currentTerm than reply.ResultVote = FALSE
+		if arguments.Term >= currentTerm && votedFor == -1 { //A leader already voted for itself
+			reply.ResultVote = true
+			currentTerm = arguments.Term //update term
+			isLeader = false             //no longer leader (if previously leader)
+			votedFor = arguments.CandidateID
+			fmt.Printf("VOTED FOR Candidate %d in term #%d\n", arguments.CandidateID, currentTerm)
+		} else {
+			reply.ResultVote = false
+			reply.Term = currentTerm
+			fmt.Printf("Server %d (term #%d) REJECTED Candidate %d (term #%d) - voted for %d\n", selfID, currentTerm, arguments.CandidateID, arguments.Term, votedFor)
+		}
+		// if arguments.Term < currentTerm {
+		// 	reply.ResultVote = false
+		// 	reply.Term = currentTerm // let the candidate know what the term is
+		// 	fmt.Printf("REJECTED: Candidate %d's term #%d is less than current term #%d\n", arguments.CandidateID, arguments.Term, currentTerm)
+		// } else if votedFor == selfID { // candidate is valid, but we are also a candidate
+		// 	reply.ResultVote = false
+		// 	fmt.Printf("REJECTED Candidate %d because WE are a Candidate (%d)\n", arguments.CandidateID, selfID)
+		// } else if votedFor != arguments.CandidateID { // candidate is valid, but server already voted for someone else
+		// 	reply.ResultVote = false
+		// 	fmt.Printf("REJECTED Candidate %d because Follower %d has already voted for %d\n", arguments.CandidateID, selfID, votedFor)
+		// } else { //vote for the candidate
+		// 	reply.ResultVote = true
+		// 	fmt.Printf("VOTED FOR Candidate %d\n", arguments.CandidateID)
+		// }*/
 	return nil
 
 }
@@ -124,7 +157,16 @@ func (*RaftNode) RequestVote(arguments VoteArguments, reply *VoteReply) error {
 // Hint 2: Only focus on the details related to leader election and heartbeats
 func (*RaftNode) AppendEntry(arguments AppendEntryArgument, reply *AppendEntryReply) error {
 	fmt.Printf("Got RPC from Leader %d in term #%d\n", arguments.LeaderID, arguments.Term)
-	stopped := restartTimer()
+	stopped := restartTimer2()
+	//if recieves a heartbeat, we must be a follower
+	if isLeader {
+		isLeader = false //no longer leader (if previously leader)
+		fmt.Printf("I was leader, but now I am not (found out when receiving a heartbeat)")
+	}
+
+	//might need to update our term
+	currentTerm = arguments.Term
+
 	if !stopped {
 		fmt.Printf("leader %d's heartbeat recieved AFTER server %d timed out\n", arguments.LeaderID, selfID)
 	}
@@ -166,6 +208,18 @@ func restartTimer() bool {
 	return timer_was_going
 }
 
+func restartTimer2() bool {
+	//stop timer
+	timer_was_going := electionTimeout.Stop()
+	if timer_was_going {
+		fmt.Println("Heartbeat recieved; timer was stopped")
+	}
+	//restart timer
+	//StartTimer()
+	electionTimeout.Reset(randomTime() * time.Millisecond)
+	return timer_was_going
+}
+
 // You may use this function to help with handling the election time out
 // Hint: It may be helpful to call this method every time the node wants to start an election
 func LeaderElection() {
@@ -179,7 +233,7 @@ func LeaderElection() {
 	voteArgs := new(VoteArguments)
 	voteArgs.Term = currentTerm
 	voteArgs.CandidateID = selfID
-	var voteResult *VoteReply
+	var voteResult *VoteReply //NEED TO CREATE A NEW VOTEREPLY OBJECT FOR EACH CALL (I THINK PUT INSIDE THE FOR LOOP)
 	voteResult = new(VoteReply)
 	for _, node := range serverNodes {
 		serverCall := node.rpcConnection.Go("RaftNode.RequestVote", voteArgs, voteResult, nil)
@@ -217,6 +271,8 @@ func Heartbeat() {
 			node.rpcConnection.Go("RaftNode.AppendEntry", arg, &reply, nil)
 		}
 		time.Sleep(10 * time.Second) //pause
+		//if you want to introduce failures, randomly break in that loop
+		//alternatively, could set up one of the machines to have a really short timeout and all the others have a really long timeout to mimic a failure
 	}
 }
 
