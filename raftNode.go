@@ -386,7 +386,7 @@ func main() {
 	StartTimer(timerDuration) //go
 	wg.Wait()
 	isLeader = false
-	time.Sleep(50 * time.Second)
+	//time.Sleep(50 * time.Second)
 	// HINT 1: You may need to start a thread here (or more, based on your logic)
 	// Hint 2: Main process should never stop
 	// Hint 3: After this point, the threads should take over
