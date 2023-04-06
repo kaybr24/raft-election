@@ -9,7 +9,6 @@ import (
 	"net/rpc"
 	"os"
 	"strconv"
-	"sync"
 	"time"
 )
 
@@ -88,7 +87,7 @@ func (*RaftNode) RequestVote(arguments VoteArguments, reply *VoteReply) error {
 			reply.Term = currentTerm
 			fmt.Printf("Server %d (term #%d) REJECTED Candidate %d (term #%d) because we are in higher term\n", selfID, currentTerm, arguments.CandidateID, arguments.Term)
 		} else { //otherwise if the candidate is higher term (or same term?) as us, we can vote for it
-			fmt.Println("---->I GET TO WHERE I AM GOING TO VOTE")
+			fmt.Println("---->I GOT TO WHERE I AM GOING TO VOTE")
 			reply.ResultVote = true
 			currentTerm = arguments.Term //update term
 			if isLeader {
@@ -176,10 +175,13 @@ func (*RaftNode) AppendEntry(arguments AppendEntryArgument, reply *AppendEntryRe
 	}
 
 	//might need to update our term
-	currentTerm = arguments.Term
+	if arguments.Term != currentTerm {
+		fmt.Printf("-- heartbeat CHANGED term from %d to %d", currentTerm, arguments.Term)
+		currentTerm = arguments.Term
+	}
 
 	if !stopped {
-		fmt.Printf("leader %d's heartbeat recieved AFTER server %d timed out\n", arguments.LeaderID, selfID)
+		fmt.Printf("leader %d's heartbeat recieved AFTER server %d's timer stopped'\n", arguments.LeaderID, selfID)
 	}
 	//if the candidate's term is less than global currentTerm, reply.Success = FALSE
 	return nil
@@ -219,17 +221,17 @@ func restartTimer() bool {
 	return timer_was_going
 }
 
-func restartTimer2() bool {
-	//stop timer
-	timer_was_going := electionTimeout.Stop()
-	if timer_was_going {
-		fmt.Println("Heartbeat recieved; timer was stopped")
-	}
-	//restart timer
-	//StartTimer()
-	electionTimeout.Reset(timerDuration * time.Millisecond)
-	return timer_was_going
-}
+// func restartTimer2() bool {
+// 	//stop timer
+// 	timer_was_going := electionTimeout.Stop()
+// 	if timer_was_going {
+// 		fmt.Println("Heartbeat recieved; timer was stopped")
+// 	}
+// 	//restart timer
+// 	//StartTimer()
+// 	electionTimeout.Reset(timerDuration * time.Millisecond)
+// 	return timer_was_going
+// }
 
 // You may use this function to help with handling the election time out
 // Hint: It may be helpful to call this method every time the node wants to start an election
@@ -247,8 +249,10 @@ func LeaderElection() {
 	//var voteResult *VoteReply //NEED TO CREATE A NEW VOTEREPLY OBJECT FOR EACH CALL (I THINK PUT INSIDE THE FOR LOOP)
 	//voteResult = new(VoteReply)
 	for _, node := range serverNodes {
-		var voteResult *VoteReply //NEED TO CREATE A NEW VOTEREPLY OBJECT FOR EACH CALL (I THINK PUT INSIDE THE FOR LOOP)
-		voteResult = new(VoteReply)
+		fmt.Printf("requesting vote from: ")
+		fmt.Println(node)
+		//var voteResult *VoteReply //NEED TO CREATE A NEW VOTEREPLY OBJECT FOR EACH CALL (I THINK PUT INSIDE THE FOR LOOP)
+		voteResult := new(VoteReply)
 
 		serverCall := node.rpcConnection.Go("RaftNode.RequestVote", voteArgs, voteResult, nil)
 		<-serverCall.Done
@@ -261,7 +265,8 @@ func LeaderElection() {
 		}
 	}
 	//if recieved majority of votes, become leader
-	if voteCounts >= len(serverNodes)/2 {
+	voteProportion := float64(voteCounts) / float64(len(serverNodes))
+	if voteProportion >= 0.5 {
 		fmt.Printf("Elected LEADER %d with %d out of %d of the vote in TERM #%d\n", selfID, voteCounts, len(serverNodes)+1, currentTerm)
 		electionTimeout.Stop()
 		isLeader = true
@@ -286,12 +291,15 @@ func Heartbeat() {
 		}
 		time.Sleep(1 * time.Second) //pause
 		//if you want to introduce failures, randomly break in that loop
+		if rand.Intn(10) > 5 {
+			break //pretend to fail
+		}
 		//alternatively, could set up one of the machines to have a really short timeout and all the others have a really long timeout to mimic a failure
 	}
 }
 
 func main() {
-	var wg sync.WaitGroup
+	//var wg sync.WaitGroup
 	// The assumption here is that the command line arguments will contain:
 	// This server's ID (zero-based), location and name of the cluster configuration file
 	arguments := os.Args
@@ -304,6 +312,9 @@ func main() {
 
 	// Get this sever's ID (same as its index for simplicity)
 	myID, err := strconv.Atoi(arguments[1])
+	if err != nil {
+		log.Fatal(err)
+	}
 	selfID = myID //define raftNode's ID
 	// Get the information of the cluster configuration file containing information on other servers
 	file, err := os.Open(arguments[2])
@@ -318,6 +329,7 @@ func main() {
 	scanner := bufio.NewScanner(file)
 	lines := make([]string, 0)
 	index := 0
+	offset := 0
 	for scanner.Scan() {
 		// Get server IP:port
 		text := scanner.Text()
@@ -374,7 +386,10 @@ func main() {
 		}
 		// Once connection is finally established
 		// Save that connection information in the servers list
-		serverNodes = append(serverNodes, ServerConnection{index, element, client})
+		if index == myID {
+			offset = 1
+		}
+		serverNodes = append(serverNodes, ServerConnection{index + offset, element, client})
 		// Record that in log
 		fmt.Println("Connected to " + element)
 	}
@@ -383,10 +398,11 @@ func main() {
 	// Leader election and heartbeats are concurrent and non-stop in Raft
 	fmt.Printf("Creating Follower %d\n", selfID)
 	timerDuration = randomTime()
-	StartTimer(timerDuration) //go
-	wg.Wait()
+	//wg.Add(1)
 	isLeader = false
-	//time.Sleep(50 * time.Second)
+	StartTimer(timerDuration) //go
+	//wg.Wait()
+	time.Sleep(50 * time.Second)
 	// HINT 1: You may need to start a thread here (or more, based on your logic)
 	// Hint 2: Main process should never stop
 	// Hint 3: After this point, the threads should take over
