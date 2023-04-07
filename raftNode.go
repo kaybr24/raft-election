@@ -9,6 +9,7 @@ import (
 	"net/rpc"
 	"os"
 	"strconv"
+	"sync"
 	"time"
 )
 
@@ -64,6 +65,10 @@ var votedFor int
 var electionTimeout *time.Timer
 var isLeader bool
 var timerDuration time.Duration
+
+var wg sync.WaitGroup
+
+//wg := sync.WaitGroup{}
 
 // The RequestVote RPC as defined in Raft
 // Hint 1: Use the description in Figure 2 of the paper
@@ -167,7 +172,7 @@ func (*RaftNode) RequestVote(arguments VoteArguments, reply *VoteReply) error {
 // Hint 2: Only focus on the details related to leader election and heartbeats
 func (*RaftNode) AppendEntry(arguments AppendEntryArgument, reply *AppendEntryReply) error {
 	fmt.Printf("Got RPC from Leader %d in term #%d\n", arguments.LeaderID, arguments.Term)
-	stopped := restartTimer()
+	stopped := restartTimer() //returns true if timer was going
 	//if recieves a heartbeat, we must be a follower
 	if isLeader {
 		isLeader = false //no longer leader (if previously leader)
@@ -198,15 +203,19 @@ func randomTime() time.Duration {
 }
 
 func StartTimer(t time.Duration) {
+	//defer wg.Done()
 	//start as a follower
 	//fmt.Printf("Follfower %d is HERE\n", selfID)
 	electionTimeout = time.NewTimer(t * time.Millisecond)
+	wg.Add(1)
 	go func() {
 		<-electionTimeout.C //.C is a channel time object
 		//become a candidate by starting leader election
 		fmt.Printf("\nElection Timeout: %d is initating elections in term #%d\n", selfID, currentTerm+1)
 		LeaderElection()
+		wg.Done()
 	}()
+	wg.Wait()
 	// if we get an RPC, restart the timer
 }
 
@@ -398,11 +407,11 @@ func main() {
 	// Leader election and heartbeats are concurrent and non-stop in Raft
 	fmt.Printf("Creating Follower %d\n", selfID)
 	timerDuration = randomTime()
-	//wg.Add(1)
 	isLeader = false
-	StartTimer(timerDuration) //go
-	//wg.Wait()
-	time.Sleep(50 * time.Second)
+	wg.Add(1)
+	go StartTimer(timerDuration) //go
+	wg.Wait()
+	//time.Sleep(50 * time.Second)
 	// HINT 1: You may need to start a thread here (or more, based on your logic)
 	// Hint 2: Main process should never stop
 	// Hint 3: After this point, the threads should take over
