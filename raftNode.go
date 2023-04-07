@@ -20,12 +20,6 @@ type RaftNode int
 // 	// contains filtered or unexported fields
 // }
 
-// // keep track of which server votes for who and in which term
-// type ElectionResults struct {
-// 	CandidateID int //candidate requesting vote
-// 	totalVotesFor int //number of votes for that candidate
-// }
-
 // input for RequestVote RPC
 // not using lastLogIndex; lastLogTerm
 type VoteArguments struct {
@@ -230,18 +224,6 @@ func restartTimer() bool {
 	return timer_was_going
 }
 
-// func restartTimer2() bool {
-// 	//stop timer
-// 	timer_was_going := electionTimeout.Stop()
-// 	if timer_was_going {
-// 		fmt.Println("Heartbeat recieved; timer was stopped")
-// 	}
-// 	//restart timer
-// 	//StartTimer()
-// 	electionTimeout.Reset(timerDuration * time.Millisecond)
-// 	return timer_was_going
-// }
-
 // You may use this function to help with handling the election time out
 // Hint: It may be helpful to call this method every time the node wants to start an election
 func LeaderElection() {
@@ -270,9 +252,12 @@ func LeaderElection() {
 			fmt.Printf(">> Recieved VOTE: %d -> %d\n", node.serverID, selfID)
 		} else {
 			fmt.Printf(">> %d REJECTED %d \n", node.serverID, selfID)
-			currentTerm = voteResult.Term //catch up to current term
+			if voteResult.Term > currentTerm {
+				currentTerm = voteResult.Term //catch up to current term
+			}
 		}
 	}
+
 	//if recieved majority of votes, become leader
 	voteProportion := float64(voteCounts) / (float64(len(serverNodes) + 1))
 	if voteProportion >= 0.5 {
@@ -280,6 +265,9 @@ func LeaderElection() {
 		electionTimeout.Stop()
 		isLeader = true
 		Heartbeat() //Make this continue until RequestVote is recieved
+	} else {
+		fmt.Printf("Server %d Lost election with %d of %d of the vote in TERM %d\n", selfID, voteCounts, len(serverNodes)+1, currentTerm)
+		//restartTimer() //try to get elected again if no heartbeats are recieved
 	}
 	// if AppendEntries RPC recieved from new leader, convert to follower
 
@@ -300,7 +288,7 @@ func Heartbeat() {
 		}
 		time.Sleep(1 * time.Second) //pause
 		//if you want to introduce failures, randomly break in that loop
-		if rand.Intn(10) > 9 {
+		if rand.Intn(10) > 8 {
 			break //pretend to fail
 		}
 		//alternatively, could set up one of the machines to have a really short timeout and all the others have a really long timeout to mimic a failure
@@ -367,22 +355,6 @@ func main() {
 	go http.ListenAndServe(myPort, nil)
 	log.Printf("serving rpc on port" + myPort)
 
-	// This is a workaround to slow things down until all servers are up and running
-	// Idea: wait for user input to indicate that all servers are ready for connections
-	// Pros: Guaranteed that all other servers are already alive
-	// Cons: Non-realistic work around
-
-	// reader := bufio.NewReader(os.Stdin)
-	// fmt.Print("Type anything when ready to connect >> ")
-	// text, _ := reader.ReadString('\n')
-	// fmt.Println(text)
-
-	// Idea 2: keep trying to connect to other servers even if failure is encountered
-	// For fault tolerance, each node will continuously try to connect to other nodes
-	// This loop will stop when all servers are connected
-	// Pro: Realistic setup
-	// Con: If one server is not set up correctly, the rest of the system will halt
-
 	for index, element := range lines {
 		// Attempt to connect to the other server node
 		client, err := rpc.DialHTTP("tcp", element)
@@ -411,11 +383,4 @@ func main() {
 	wg.Add(1)
 	go StartTimer(timerDuration) //go
 	wg.Wait()
-	//time.Sleep(50 * time.Second)
-	// HINT 1: You may need to start a thread here (or more, based on your logic)
-	// Hint 2: Main process should never stop
-	// Hint 3: After this point, the threads should take over
-	// Heads up: they never will be done!
-	// Hint 4: wg.Wait() might be helpful here
-
 }
