@@ -274,7 +274,7 @@ func LeaderElection() {
 		}
 	}
 	//if recieved majority of votes, become leader
-	voteProportion := float64(voteCounts) / float64(len(serverNodes))
+	voteProportion := float64(voteCounts) / (float64(len(serverNodes) + 1))
 	if voteProportion >= 0.5 {
 		fmt.Printf("Elected LEADER %d with %d out of %d of the vote in TERM #%d\n", selfID, voteCounts, len(serverNodes)+1, currentTerm)
 		electionTimeout.Stop()
@@ -300,7 +300,7 @@ func Heartbeat() {
 		}
 		time.Sleep(1 * time.Second) //pause
 		//if you want to introduce failures, randomly break in that loop
-		if rand.Intn(10) > 5 {
+		if rand.Intn(10) > 9 {
 			break //pretend to fail
 		}
 		//alternatively, could set up one of the machines to have a really short timeout and all the others have a really long timeout to mimic a failure
