@@ -15,11 +15,6 @@ import (
 
 type RaftNode int
 
-// type Timer struct {
-// 	C <-chan time.Time
-// 	// contains filtered or unexported fields
-// }
-
 // input for RequestVote RPC
 // not using lastLogIndex; lastLogTerm
 type VoteArguments struct {
@@ -69,7 +64,6 @@ var wg sync.WaitGroup
 // Hint 2: Only focus on the details related to leader election and majority votes
 func (*RaftNode) RequestVote(arguments VoteArguments, reply *VoteReply) error {
 	//all RPCs function as heartbeats
-	//restartTimer2()
 	//this should not print
 	fmt.Printf("Candidate %d is requesting a vote from Follower %d\n", arguments.CandidateID, selfID)
 	//clear the votedFor if we are in a new election
@@ -113,50 +107,6 @@ func (*RaftNode) RequestVote(arguments VoteArguments, reply *VoteReply) error {
 		reply.ResultVote = false
 		reply.Term = currentTerm
 	}
-
-	/*
-		//clear the votedFor if we are in a new election
-		if arguments.Term > currentTerm {
-			votedFor = -1
-		}
-		// // Now do we want to vote for them?
-		// if votedFor != -1 { //we already voted for someone in this term
-		// 	reply.ResultVote = false
-		// 	fmt.Printf("Server %d (term #%d) REJECTED Candidate %d (term #%d) - voted for %d\n", selfID, currentTerm, arguments.CandidateID, arguments.Term, votedFor)
-		// } else { //we have not voted for anyone in this term
-
-		// }
-		// if isLeader && arguments.Term > currentTerm {
-		// 	isLeader = false
-		// 	fmt.Println(">> Was leader, NOW follower")
-		// }
-
-		// if candidate's term is less the global currentTerm than reply.ResultVote = FALSE
-		if arguments.Term >= currentTerm && votedFor == -1 { //A leader already voted for itself
-			reply.ResultVote = true
-			currentTerm = arguments.Term //update term
-			isLeader = false             //no longer leader (if previously leader)
-			votedFor = arguments.CandidateID
-			fmt.Printf("VOTED FOR Candidate %d in term #%d\n", arguments.CandidateID, currentTerm)
-		} else {
-			reply.ResultVote = false
-			reply.Term = currentTerm
-			fmt.Printf("Server %d (term #%d) REJECTED Candidate %d (term #%d) - voted for %d\n", selfID, currentTerm, arguments.CandidateID, arguments.Term, votedFor)
-		}
-		// if arguments.Term < currentTerm {
-		// 	reply.ResultVote = false
-		// 	reply.Term = currentTerm // let the candidate know what the term is
-		// 	fmt.Printf("REJECTED: Candidate %d's term #%d is less than current term #%d\n", arguments.CandidateID, arguments.Term, currentTerm)
-		// } else if votedFor == selfID { // candidate is valid, but we are also a candidate
-		// 	reply.ResultVote = false
-		// 	fmt.Printf("REJECTED Candidate %d because WE are a Candidate (%d)\n", arguments.CandidateID, selfID)
-		// } else if votedFor != arguments.CandidateID { // candidate is valid, but server already voted for someone else
-		// 	reply.ResultVote = false
-		// 	fmt.Printf("REJECTED Candidate %d because Follower %d has already voted for %d\n", arguments.CandidateID, selfID, votedFor)
-		// } else { //vote for the candidate
-		// 	reply.ResultVote = true
-		// 	fmt.Printf("VOTED FOR Candidate %d\n", arguments.CandidateID)
-		// }*/
 	return nil
 
 }
@@ -288,9 +238,9 @@ func Heartbeat() {
 		}
 		time.Sleep(1 * time.Second) //pause
 		//if you want to introduce failures, randomly break in that loop
-		if rand.Intn(10) > 8 {
-			break //pretend to fail
-		}
+		// if rand.Intn(10) > 8 {
+		// 	break //pretend to fail
+		// }
 		//alternatively, could set up one of the machines to have a really short timeout and all the others have a really long timeout to mimic a failure
 	}
 }
