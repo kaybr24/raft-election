@@ -16,10 +16,11 @@ import (
 type RaftNode int
 
 // input for RequestVote RPC
-// not using lastLogIndex; lastLogTerm
 type VoteArguments struct {
-	Term        int // candidate's term
-	CandidateID int // candidate requesting vote
+	Term         int // candidate's term
+	CandidateID  int // candidate requesting vote
+	lastLogIndex int // index of candidate's last log entry
+	lastLogTerm  int // term of candidate's last log entry
 }
 
 // output for RequestVote RPC
@@ -31,8 +32,12 @@ type VoteReply struct {
 // input for AppendEntries RPC
 // prevLogIndex, prevLogTerm, entries[],and leaderCommit all refer to logs and will not be used here
 type AppendEntryArgument struct {
-	Term     int // leader's term
-	LeaderID int // so follower can redirect clients
+	Term         int        // leader's term
+	LeaderID     int        // so follower can redirect clients
+	prevLogIndex int        // index of log entry immediantely preceeding the new ones
+	prevLogTerm  int        // term of last prevLogIndex entry
+	entries      []LogEntry // the log entries to be stored (empty for heartbeat)
+	leaderCommit int        // leader's commitIndex
 }
 
 // output for AppendEntries RPC
@@ -47,6 +52,11 @@ type ServerConnection struct {
 	rpcConnection *rpc.Client
 }
 
+type LogEntry struct {
+	Index int
+	Term  int
+}
+
 var selfID int
 var serverNodes []ServerConnection
 var currentTerm int
@@ -54,14 +64,42 @@ var votedFor int
 var electionTimeout *time.Timer
 var isLeader bool
 var timerDuration time.Duration
-
 var wg sync.WaitGroup
+var commitIndex int
+var lastAppliedIndex int //?
+var entries []LogEntry
 
-//wg := sync.WaitGroup{}
+// This function is designed to emulate a client reaching out to the server. Note that many of the realistic details are removed, for simplicity
+func ClientAddToLog() {
+	// In a realistic scenario, the client will find the leader node and communicate with it
+	// In this implementation, we are pretending that the client reached out to the server somehow
+	// But any new log entries will not be created unless the server / node is a leader
+	// isLeader here is a boolean to indicate whether the node is a leader or not
+	if isLeader {
+		// lastAppliedIndex here is an int variable that is needed by a node to store the value of the last index it used in the log
+		entry := LogEntry{lastAppliedIndex, currentTerm}
+		log.Println("Client communication created the new log entry at index " + strconv.Itoa(entry.Index))
+		// Add rest of logic here
+		// HINT 1: using the AppendEntry RPC might happen here
+	}
+	// HINT 2: force the thread to sleep for a good amount of time (less than that of the leader election timer) and then repeat the actions above. You may use an endless loop here or recursively call the function
+	// HINT 3: you don’t need to add to the logic of creating new log entries, just handle the replication
+}
+
+// compares index and term of the candidate's last log entry with those of our own last log entry
+// returns TRUE if the candidate's log is at least as up-to-date as reciever's log
+func logUpToDate(lastLogIndex int, lastLogTerm int) bool {
+	if lastLogTerm < currentTerm { //later term is more up-to-date
+		return false
+	} else if (lastLogTerm == currentTerm) && (lastLogIndex < lastAppliedIndex) { //if same term, longer log wins
+		return false
+	} else { // candidate has a greater term OR more log entries
+		return true
+	}
+}
 
 // The RequestVote RPC as defined in Raft
 // Hint 1: Use the description in Figure 2 of the paper
-// Hint 2: Only focus on the details related to leader election and majority votes
 func (*RaftNode) RequestVote(arguments VoteArguments, reply *VoteReply) error {
 	//all RPCs function as heartbeats
 	//this should not print
@@ -79,8 +117,12 @@ func (*RaftNode) RequestVote(arguments VoteArguments, reply *VoteReply) error {
 			//tell the candidate our term?
 			reply.Term = currentTerm
 			fmt.Printf("Server %d (term #%d) REJECTED Candidate %d (term #%d) because we are in higher term\n", selfID, currentTerm, arguments.CandidateID, arguments.Term)
-		} else { //otherwise if the candidate is higher term (or same term?) as us, we can vote for it
-			fmt.Println("---->I GOT TO WHERE I AM GOING TO VOTE")
+		} else if !logUpToDate(arguments.lastLogTerm, arguments.lastLogIndex) {
+			reply.ResultVote = false
+			reply.Term = currentTerm
+			fmt.Printf("Server %d (term #%d) REJECTED Candidate %d (term #%d) because their log (T:%d,I:%d) is NOT up to date with (T:%d,I:%d)\n", selfID, currentTerm, arguments.CandidateID, arguments.Term, arguments.lastLogTerm, arguments.lastLogIndex, currentTerm, lastAppliedIndex)
+		} else { //otherwise if the candidate's term is at least as high and their log is up-to-date, we can vote for it
+			fmt.Println("---->I AM VOTING YES")
 			reply.ResultVote = true
 			currentTerm = arguments.Term //update term
 			if isLeader {
@@ -89,11 +131,10 @@ func (*RaftNode) RequestVote(arguments VoteArguments, reply *VoteReply) error {
 			}
 			votedFor = arguments.CandidateID
 			fmt.Printf("VOTED FOR Candidate %d in term #%d\n", arguments.CandidateID, currentTerm)
-		} /*else {
-			fmt.Println("--->FIGURE OUT WHAT TO DO IN THIS SCENARIO")
-		}*/
-	} else if votedFor == arguments.CandidateID {
-		fmt.Println("---->I GET TO WHERE I AM GOING TO VOTE")
+		}
+		// already voted for this candidate
+	} else if votedFor == arguments.CandidateID && logUpToDate(arguments.lastLogTerm, arguments.lastLogIndex) {
+		fmt.Println("---->I GOT TO WHERE I AM GOING TO VOTE")
 		reply.ResultVote = true
 		currentTerm = arguments.Term //update term
 		if isLeader {
@@ -102,6 +143,7 @@ func (*RaftNode) RequestVote(arguments VoteArguments, reply *VoteReply) error {
 		}
 		votedFor = arguments.CandidateID
 		fmt.Printf("VOTED FOR Candidate %d in term #%d\n", arguments.CandidateID, currentTerm)
+		// already voted for someone else in this election
 	} else {
 		fmt.Printf("I already voted for %d in this term #%d\n", votedFor, currentTerm)
 		reply.ResultVote = false
@@ -113,26 +155,35 @@ func (*RaftNode) RequestVote(arguments VoteArguments, reply *VoteReply) error {
 
 // The AppendEntry RPC as defined in Raft
 // Hint 1: Use the description in Figure 2 of the paper
-// Hint 2: Only focus on the details related to leader election and heartbeats
 func (*RaftNode) AppendEntry(arguments AppendEntryArgument, reply *AppendEntryReply) error {
-	fmt.Printf("Got RPC from Leader %d in term #%d\n", arguments.LeaderID, arguments.Term)
-	stopped := restartTimer() //returns true if timer was going
-	//if recieves a heartbeat, we must be a follower
-	if isLeader {
-		isLeader = false //no longer leader (if previously leader)
-		fmt.Printf("I was leader, but now I am not (found out when receiving a heartbeat)")
-	}
+	if len(arguments.entries) == 0 { //This is a heartbeat message
+		fmt.Printf("Got RPC from Leader %d in term #%d\n", arguments.LeaderID, arguments.Term)
+		stopped := restartTimer() //returns true if timer was going
+		//if recieves a heartbeat, we must be a follower
+		if isLeader {
+			isLeader = false //no longer leader (if previously leader)
+			fmt.Printf("I was leader, but now I am not (found out when receiving a heartbeat)")
+		}
+		//might need to update our term
+		if arguments.Term != currentTerm {
+			fmt.Printf("-- heartbeat CHANGED term from %d to %d", currentTerm, arguments.Term)
+			currentTerm = arguments.Term
+		}
+		if !stopped {
+			fmt.Printf("leader %d's heartbeat recieved AFTER server %d's timer stopped'\n", arguments.LeaderID, selfID)
+		}
+		//if the candidate's term is less than global currentTerm, reply.Success = FALSE
+	} else { //There are log entries to append!
+		if arguments.Term < currentTerm {
+			reply.Success = false
+			reply.Term = currentTerm
+		} else if arguments.prevLogTerm != entries[arguments.prevLogIndex].Term { //log doesn't contain an entry at prevLogIndex with a matching term
+			reply.Success = false
+			reply.Term = currentTerm
+		} else { // success?
 
-	//might need to update our term
-	if arguments.Term != currentTerm {
-		fmt.Printf("-- heartbeat CHANGED term from %d to %d", currentTerm, arguments.Term)
-		currentTerm = arguments.Term
+		}
 	}
-
-	if !stopped {
-		fmt.Printf("leader %d's heartbeat recieved AFTER server %d's timer stopped'\n", arguments.LeaderID, selfID)
-	}
-	//if the candidate's term is less than global currentTerm, reply.Success = FALSE
 	return nil
 }
 
