@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 	"math/rand"
+	"math"
 	"net/http"
 	"net/rpc"
 	"os"
@@ -67,8 +68,15 @@ var timerDuration time.Duration
 var wg sync.WaitGroup
 var commitIndex int
 var lastAppliedIndex int //?
-var entries []LogEntry
+var logs []LogEntry
 
+//helper function to help us find the smaller val of two input integers
+func min(a, b int) int {
+    if a < b {
+        return a
+    }
+    return b
+}
 // This function is designed to emulate a client reaching out to the server. Note that many of the realistic details are removed, for simplicity
 func ClientAddToLog() {
 	// In a realistic scenario, the client will find the leader node and communicate with it
@@ -89,12 +97,25 @@ func ClientAddToLog() {
 // compares index and term of the candidate's last log entry with those of our own last log entry
 // returns TRUE if the candidate's log is at least as up-to-date as reciever's log
 func logUpToDate(lastLogIndex int, lastLogTerm int) bool {
-	if lastLogTerm < currentTerm { //later term is more up-to-date
+	lastAppliedTerm := logs[len(logs)].Term
+	fmt.Printf("Checking Candidate's last log entry: (Term #%d, Index %d) vs our own (Term #%d, Index %d) ", lastLogTerm, lastLogIndex, lastAppliedTerm, lastAppliedIndex)
+	if lastLogTerm < lastAppliedTerm { //later term is more up-to-date
+		fmt.Printf("NOT up to date: TERM TOO LOW\n")
 		return false
-	} else if (lastLogTerm == currentTerm) && (lastLogIndex < lastAppliedIndex) { //if same term, longer log wins
+	} else if (lastLogTerm == lastAppliedTerm) && (lastLogIndex < lastAppliedIndex) { //if same term, longer log wins
+		fmt.Printf("NOT up to date: MISSING ENTRIES\n")
 		return false
 	} else { // candidate has a greater term OR more log entries
+		fmt.Printf("UP TO DATE :)\n")
 		return true
+	}
+}
+
+// print the log so we can see all the terms and indices
+func printLog(log []LogEntry) {
+	fmt.Printf("Node #%d's Log in Term #%d\n", selfID, currentTerm)
+	for _, entry := range log {
+		fmt.Printf(" [%d: term %d] ", entry.Index, entry.Term)
 	}
 }
 
@@ -174,16 +195,42 @@ func (*RaftNode) AppendEntry(arguments AppendEntryArgument, reply *AppendEntryRe
 		}
 		//if the candidate's term is less than global currentTerm, reply.Success = FALSE
 	} else { //There are log entries to append!
-		if arguments.Term < currentTerm {
+		if arguments.Term < currentTerm { //#1: reply false if term < currentTerm
 			reply.Success = false
 			reply.Term = currentTerm
-		} else if arguments.prevLogTerm != entries[arguments.prevLogIndex].Term { //log doesn't contain an entry at prevLogIndex with a matching term
+		} else if arguments.prevLogTerm != logs[arguments.prevLogIndex].Term { //#2: log doesn't contain an entry at prevLogIndex with a matching term
+			if logs[arguments.prevLogIndex].Index != arguments.prevLogIndex { // we have the same index
+				fmt.Printf("<< Entries mismatch: leader's %d != our log-term %d :( This should NEVER print\n", arguments.prevLogIndex, logs[arguments.prevLogIndex].Index)
+			} //#2 reply false if log doesn't contain an entry at prevLogIndex that matches prevLogTerm
 			reply.Success = false
 			reply.Term = currentTerm
-		} else { // success?
+			// #3: delete the existing entry and all that follow
+			deletedNum := len(logs) - arguments.prevLogIndex
+			printLog(logs)
+			fmt.Printf("Term #%d is less than Leader's term #%d at index %d. \nDELETING %d entry", logs[arguments.prevLogIndex].Term, arguments.prevLogTerm, arguments.prevLogIndex, deletedNum)
+			logs = logs[0:arguments.prevLogIndex]
+			lastAppliedIndex = len(logs) - 1
+			printLog(logs)
+		} else { // #4: success!  Append all given entries
+			if arguments.prevLogIndex != lastAppliedIndex {
+				fmt.Printf("<< Uh-oh! Attempted to add log entries when indicies %d (local) and %d (leader) don't match", lastAppliedIndex, arguments.prevLogIndex)
+			}
+			for _, entry := range arguments.entries {
+				lastAppliedIndex += 1
+				fmt.Printf("Added entry [%d: Term #%d] at index: %d", entry.Index, entry.Term, lastAppliedIndex)
+				logs[lastAppliedIndex].Term = entry.Term
+				logs[lastAppliedIndex].Index = entry.Index
+			}
+			reply.Success = true
+			reply.Term = currentTerm
 
+			//#5: update commitIndex if leaderCommit > commitIndex
+			if arguments.leaderCommit > commitIndex{
+				min := min(arguments.leaderCommit,lastAppliedIndex)
+				commitIndex = min 
+			}
 		}
-		
+
 	}
 	return nil
 }
