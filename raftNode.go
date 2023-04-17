@@ -187,13 +187,13 @@ func (*RaftNode) AppendEntry(arguments AppendEntryArgument, reply *AppendEntryRe
 		}
 		//if the candidate's term is less than global currentTerm, reply.Success = FALSE
 	} else { //There are log entries to append!
-		if arguments.Term < currentTerm {
+		if arguments.Term < currentTerm { //#1 reply false if term < currentTerm
 			reply.Success = false
 			reply.Term = currentTerm
 		} else if arguments.prevLogTerm != logs[arguments.prevLogIndex].Term { //log doesn't contain an entry at prevLogIndex with a matching term
 			if logs[arguments.prevLogIndex].Index != arguments.prevLogIndex { // we have the same index
 				fmt.Printf("<< Entries mismatch: leader's %d != our log-term %d :( This should NEVER print\n", arguments.prevLogIndex, logs[arguments.prevLogIndex].Index)
-			}
+			} //#2 reply false if log doesn't contain an entry at prevLogIndex that matches prevLogTerm
 			reply.Success = false
 			reply.Term = currentTerm
 			// delete the existing entry and all that follow
