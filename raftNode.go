@@ -252,6 +252,10 @@ func LeaderElection() {
 		if voteResult.ResultVote {
 			voteCounts += 1 //recieved a vote
 			fmt.Printf(">> Recieved VOTE: %d -> %d\n", node.serverID, selfID)
+			//WHY WOULD I EVER NEED THIS?::
+			if currentTerm < voteResult.Term {
+				currentTerm = voteResult.Term //catch up to current term
+			}
 		} else {
 			fmt.Printf(">> %d REJECTED %d \n", node.serverID, selfID)
 			if voteResult.Term > currentTerm {
