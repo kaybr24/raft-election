@@ -89,6 +89,26 @@ func ClientAddToLog() {
 		log.Println("Client communication created the new log entry at index " + strconv.Itoa(entry.Index))
 		// Add rest of logic here
 		// HINT 1: using the AppendEntry RPC might happen here
+
+		// arguments for AppendEntry RPC
+		appendArg := new(AppendEntryArgument)
+		appendArg.Term = currentTerm
+		appendArg.LeaderID = selfID               // for redirecting clients [?] are we using this here?
+		appendArg.prevLogIndex = lastAppliedIndex //that's our own last log entry.  Where do we track follower lastAppliedIndices?
+		appendArg.prevLogTerm = logs[lastAppliedIndex].Term
+		newEntry := new(LogEntry)
+		newEntry.Term = currentTerm
+		newEntry.Index = lastAppliedIndex + 1
+		appendArg.entries[0] = *newEntry
+		appendArg.leaderCommit = commitIndex
+
+		//track the result of our attempt to add an entry
+		appendReply := new(AppendEntryReply)
+
+		// tell all followers to add the new entry to their logs
+		for _, node := range serverNodes {
+			node.rpcConnection.Go("RaftNode.AppendEntry", appendArg, appendReply, nil)
+		}
 	}
 	// HINT 2: force the thread to sleep for a good amount of time (less than that of the leader election timer) and then repeat the actions above. You may use an endless loop here or recursively call the function
 	// HINT 3: you don’t need to add to the logic of creating new log entries, just handle the replication
