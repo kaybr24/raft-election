@@ -68,6 +68,8 @@ var wg sync.WaitGroup
 var commitIndex int
 var lastAppliedIndex int //?
 var logs []LogEntry
+var nextIndex map[int]int  //map[followerID]index of next log entry to send to each follower
+var matchIndex map[int]int //map[followerID]index of highest log entry known to be replicated on that follower
 
 // helper function to help us find the smaller val of two input integers
 func min(a, b int) int {
@@ -107,11 +109,32 @@ func ClientAddToLog() {
 
 		// tell all followers to add the new entry to their logs
 		for _, node := range serverNodes {
-			node.rpcConnection.Go("RaftNode.AppendEntry", appendArg, appendReply, nil)
+			serverCall := node.rpcConnection.Go("RaftNode.AppendEntry", appendArg, appendReply, nil) //should I add a go here?
+			<-serverCall.Done
+
+			if appendReply.Success {
+				//update nextIndex and matchIndex for this follower
+				nextIndex[node.serverID] += len(appendArg.entries)
+				matchIndex[node.serverID] += len(appendArg.entries)
+			} else {
+				//decrement nextIndex and retry
+				nextIndex[node.serverID] -= 1
+				//recursive retry
+			}
 		}
+
 	}
 	// HINT 2: force the thread to sleep for a good amount of time (less than that of the leader election timer) and then repeat the actions above. You may use an endless loop here or recursively call the function
 	// HINT 3: you don’t need to add to the logic of creating new log entries, just handle the replication
+}
+
+// recursive attempts to append an entry to follower logs until the follower log matches
+func leaderAppendEntry(node ServerConnection, appendArgs AppendEntryArgument, appendResult AppendEntryReply) {
+	if appendResult.Success { //Base case: Append entry was successful
+		//update nextIndex and matchIndex for this follower
+		nextIndex[node.serverID] += len(appendArgs.entries)
+		matchIndex[node.serverID] += len(appendArgs.entries)
+	}
 }
 
 // compares index and term of the candidate's last log entry with those of our own last log entry
@@ -337,6 +360,9 @@ func LeaderElection() {
 		fmt.Printf("Elected LEADER %d with %d out of %d of the vote in TERM #%d\n", selfID, voteCounts, len(serverNodes)+1, currentTerm)
 		electionTimeout.Stop()
 		isLeader = true
+		//reset follower tracking
+		nextIndex = make(map[int]int)
+		matchIndex = make(map[int]int)
 		Heartbeat() //Make this continue until RequestVote is recieved
 	} else {
 		fmt.Printf("Server %d Lost election with %d of %d of the vote in TERM %d\n", selfID, voteCounts, len(serverNodes)+1, currentTerm)
